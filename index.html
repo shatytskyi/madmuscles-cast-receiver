@@ -138,6 +138,9 @@
             #spinner.show { animation: spin 0.85s linear infinite; }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* TEMP debug readout of the last overlay payload (remove once the timer issue is diagnosed). */
+        #debug { position: absolute; left: 8px; bottom: 8px; z-index: 9; font: 12px/1.3 monospace; color: rgba(255,255,255,0.4); pointer-events: none; }
     </style>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
@@ -179,6 +182,7 @@
 
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
+    <div id="debug"></div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -308,6 +312,9 @@
 
             renderPanels(d);
             if (isCard) renderCard(d);
+
+            // TEMP: surface the live payload so we can see why the timer/countdown isn't rendering.
+            el('debug').textContent = (d.phase || '-') + '   t=' + (d.timer || '-') + '   cd=' + (d.isCountdown ? 1 : 0);
         }
 
         // Audio rendition (language + music/voice) the phone wants on the TV. Stored so a switch
@@ -341,20 +348,23 @@
             applyOverlay(data);
         });
 
-        // Buffering spinner driven by CAF PlayerManager events (reliable for the initial load too,
-        // unlike the HTML5 <video> events which Shaka/MSE doesn't surface consistently).
+        // Buffering spinner. PLAYER_LOAD_COMPLETE fires while the first segments are still buffering
+        // (first frame is shown but not advancing), so DON'T hide on it — wait for the video element's
+        // `playing` event, the real "playback started" signal. Show on load/buffering/stall.
         const spinnerEl = el('spinner');
+        const videoEl = el('video');
         const setBuffering = (on) => spinnerEl.classList.toggle('show', !!on);
         playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, () => setBuffering(true));
         playerManager.addEventListener(cast.framework.events.EventType.BUFFERING, (event) => setBuffering(!!event.isBuffering));
+        videoEl.addEventListener('waiting', () => setBuffering(true));
+        videoEl.addEventListener('playing', () => setBuffering(false));
 
-        // Apply the phone's audio rendition once Shaka has the manifest, and clear the load spinner:
-        // prefer a label already requested over the channel, else the one passed in load customData.
+        // Apply the phone's audio rendition once Shaka has the manifest: prefer a label already
+        // requested over the channel, else the one passed in load customData.
         playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, () => {
             const info = playerManager.getMediaInformation && playerManager.getMediaInformation();
             const fromLoad = info && info.customData && info.customData.audio;
             applyAudioLabel(desiredAudioLabel || fromLoad);
-            setBuffering(false);
         });
 
         playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
