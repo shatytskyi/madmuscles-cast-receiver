@@ -1,18 +1,14 @@
 <!DOCTYPE html>
 <!--
-  MA-4513 — Minimal Custom Web Receiver (Milestone 1), modeled on the sibling Harna app's
-  working receiver. Plays whatever HLS the sender loads via RemoteMediaClient.
+  MA-4513 — Custom Web Receiver.
 
-  KEY: useShakaForHls = true — play HLS through the Shaka player (robust HLS, reads the manifest
-  itself) instead of the default Media Player Library. This is what makes Harna's custom receiver
-  play HLS reliably where the Default Media Receiver does not.
+  M1: plays whatever HLS the sender loads (useShakaForHls = true — robust HLS, same as Harna).
+  M3a: also renders a MINIMAL overlay (exercise title + timer) driven by messages the phone pushes
+       on urn:x-cast:com.amomedia.musclemate.reboot. This proves the state channel end-to-end; the
+       full custom UI (ambient panels, countdown, progress, rest / "continue on phone" cards) is M3b.
 
-  Deploy: host this single file on GitHub Pages (https://<org>.github.io/<repo>/), register that
-  URL as a Custom Receiver in the Cast Developer Console, then put the resulting application id
-  into app/src/main/res/values/cast.xml (cast_receiver_app_id).
-
-  Custom overlays / messages (the Reboot protocol) come in later milestones — the namespace channel
-  is opened here but only logs for now.
+  Deploy: host this single file on GitHub Pages, register the URL as a Custom Receiver in the Cast
+  Developer Console, and point app/src/main/res/values/cast.xml (cast_receiver_app_id) at it.
 -->
 <html>
 <head>
@@ -20,15 +16,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MadMuscles Reboot Receiver</title>
     <style>
-        html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+        html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, Roboto, Arial, sans-serif; }
         cast-media-player { --background-color: #000; width: 100%; height: 100%; }
+
+        /* Overlay layer sits above the video and never eats input (the phone is the controller). */
+        #overlay {
+            position: absolute; inset: 0; pointer-events: none;
+            display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+            padding: 6vh 4vw; box-sizing: border-box;
+            opacity: 0; transition: opacity 200ms ease;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+        }
+        #overlay.visible { opacity: 1; }
+
+        #title {
+            color: #fff; font-size: 3.2vh; font-weight: 600; text-align: center;
+            max-width: 80vw; line-height: 1.2;
+        }
+        #center { display: flex; flex-direction: column; align-items: center; gap: 1.5vh; }
+        #timer { color: #fff; font-size: 9vh; font-weight: 700; font-variant-numeric: tabular-nums; }
+        #badge {
+            color: #fff; font-size: 2.4vh; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase;
+            padding: 1vh 3vw; border-radius: 999px; background: rgba(255,255,255,0.18);
+            display: none;
+        }
+        #badge.visible { display: block; }
+        #footer { height: 3vh; } /* spacer to balance the column */
     </style>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-    <!-- Cast Debug Logger (lets us read receiver-side errors via remote DevTools) -->
     <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
 </head>
 <body>
     <cast-media-player></cast-media-player>
+
+    <div id="overlay">
+        <div id="title"></div>
+        <div id="center">
+            <div id="badge"></div>
+            <div id="timer"></div>
+        </div>
+        <div id="footer"></div>
+    </div>
+
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
 
@@ -38,15 +67,43 @@
         const castDebugLogger = cast.debug.CastDebugLogger.getInstance();
         context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
 
-        // Reboot overlay protocol channel. M1: log only — handlers (overlays, audio switch,
-        // QUEUE_NEXT/PREV routing) arrive in later milestones.
+        const overlayEl = document.getElementById('overlay');
+        const titleEl = document.getElementById('title');
+        const timerEl = document.getElementById('timer');
+        const badgeEl = document.getElementById('badge');
+
+        // Phases where we show our overlay text. intro/outro/completed are handled by the phone for
+        // now (M3a), so we keep the TV clean there.
+        const OVERLAY_PHASES = ['exercisePreview', 'exerciseActive', 'exerciseRest'];
+
+        function applyOverlay(d) {
+            if (!d || d.type !== 'overlay') return;
+
+            const showOverlay = OVERLAY_PHASES.indexOf(d.phase) !== -1 || d.isCountdown;
+            overlayEl.classList.toggle('visible', showOverlay);
+
+            titleEl.textContent = d.phase === 'exerciseRest' ? 'Rest' : (d.title || '');
+            timerEl.textContent = d.timer || '';
+
+            if (d.isCountdown) {
+                badgeEl.textContent = 'Get ready';
+                badgeEl.classList.add('visible');
+            } else {
+                badgeEl.classList.remove('visible');
+            }
+        }
+
         context.addCustomMessageListener(NAMESPACE, (event) => {
-            castDebugLogger.info('Reboot', 'custom msg: ' + JSON.stringify(event.data));
+            // CAF delivers the message in event.data — already parsed when it is valid JSON, but be
+            // defensive and parse strings too.
+            let data = event.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) { castDebugLogger.warn('Reboot', 'bad msg: ' + event.data); return; }
+            }
+            castDebugLogger.info('Reboot', 'overlay: ' + JSON.stringify(data));
+            applyOverlay(data);
         });
 
-        playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, () => {
-            castDebugLogger.info('Reboot', 'PLAYER_LOAD_COMPLETE');
-        });
         playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
             castDebugLogger.error('Reboot', 'player error: ' + JSON.stringify(event));
         });
