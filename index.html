@@ -205,7 +205,8 @@
         function runCountdown(on) {
             if (on && cdTimer === null) {
                 let n = 3; cdNum.textContent = n;
-                cdTimer = setInterval(() => { n = n > 1 ? n - 1 : 3; cdNum.textContent = n; }, 1000);
+                // Count 3 → 2 → 1 once and hold at 1 until the phone clears the countdown — don't loop.
+                cdTimer = setInterval(() => { if (n > 1) { n--; cdNum.textContent = n; } }, 1000);
             } else if (!on && cdTimer !== null) {
                 clearInterval(cdTimer); cdTimer = null;
             }
@@ -221,8 +222,13 @@
                     eyebrow = 'Up next'; title = d.title || ''; break;
                 case 'exerciseRest':
                     eyebrow = 'Rest · next up'; title = d.nextTitle || d.title || ''; sub = 'Catch your breath'; showTimer = true; break;
+                case 'intro':
+                    // Keep the intro VIDEO visible — show the prompt beside it, not over it.
+                    eyebrow = 'Get started'; title = d.workoutTitle || 'Workout'; sub = 'Press Start on your phone'; break;
+                case 'outro':
+                    eyebrow = 'Almost done'; title = d.workoutTitle || ''; sub = 'Tap Complete on your phone'; break;
                 default:
-                    break; // intro/outro/completed render as a card overlay
+                    break; // completed renders as a card overlay
             }
             leftEyebrow.textContent = eyebrow;
             leftTitle.textContent = title;
@@ -255,7 +261,9 @@
             countdownEl.classList.toggle('show', counting);
             runCountdown(counting);
 
-            const isCard = (d.phase === 'intro' || d.phase === 'outro' || d.phase === 'completed');
+            // Only the completion screen takes over the TV; intro/outro keep the video visible and
+            // show their prompt in the side panel.
+            const isCard = (d.phase === 'completed');
             cardEl.classList.toggle('show', isCard && !counting);
 
             renderPanels(d);
