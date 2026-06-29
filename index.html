@@ -27,8 +27,7 @@
             --text: #f3f4f7;
             --dim: rgba(243,244,247,0.6);
             --faint: rgba(243,244,247,0.32);
-            --gap: 1.3vh;   /* small, equal gap around the bottom progress bar */
-            --strip: calc(2 * var(--gap) + 6px);   /* bottom area reserved for the progress bar */
+            --gap: 1.6vh;   /* small gap around the bottom progress bar */
         }
         * { box-sizing: border-box; }
         html, body {
@@ -41,18 +40,16 @@
         #stage {
             position: absolute; inset: 0;
             display: grid;
-            grid-template-columns: 1fr auto 1fr;
+            grid-template-columns: 1fr minmax(0, auto) 1fr;
             align-items: center;                     /* centers the side panels vertically */
-            align-content: start;                    /* keep the row flush to the top */
-            padding: 0 4.5%;                         /* no top/bottom padding (video flush to top) */
+            padding: 0 4.5%;                         /* horizontal only → video flush to the top */
             background: radial-gradient(120% 95% at 50% 28%, #2c323f 0%, #14161d 56%, #000 100%);
         }
         #video {
-            grid-column: 2; align-self: start;
-            /* Explicit height (not %/aspect-ratio) renders reliably on the dongle; width follows the
-               video's own aspect, leaving the ambient gutters for the side panels. */
-            height: calc(100vh - var(--strip)); width: auto; max-width: 100%;
-            object-fit: contain;
+            grid-column: 2; justify-self: center; align-self: start;   /* flush to the top */
+            /* Explicit vh height + aspect-ratio is the combo that actually RENDERS on the dongle.
+               (height:100% of a grid track, or width:auto without an aspect, left the video black.) */
+            height: 96vh; aspect-ratio: 9 / 16; max-width: 100%;
             background: #000; border-radius: 10px;
             box-shadow: 0 10px 44px -10px rgba(0,0,0,0.75);
             transition: opacity 320ms ease, transform 320ms ease;
