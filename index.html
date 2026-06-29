@@ -125,6 +125,19 @@
             #countdown.show #cdNum { animation: pop 1s ease-in-out infinite; }
         }
         @keyframes pop { 0%,100% { transform: scale(1); opacity: 0.95; } 50% { transform: scale(1.08); opacity: 1; } }
+
+        /* Buffering spinner — shown while the video (re)buffers so the TV isn't a frozen/black frame. */
+        #spinner {
+            position: absolute; left: 50%; top: 50%; width: 64px; height: 64px;
+            margin: -32px 0 0 -32px; box-sizing: border-box;
+            border: 4px solid rgba(255,255,255,0.16); border-top-color: var(--accent);
+            border-radius: 50%; display: none; z-index: 5;
+        }
+        #spinner.show { display: block; }
+        @media (prefers-reduced-motion: no-preference) {
+            #spinner.show { animation: spin 0.85s linear infinite; }
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
@@ -165,6 +178,7 @@
     </div>
 
     <div id="idle">MadMuscles</div>
+    <div id="spinner"></div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -334,6 +348,14 @@
             const fromLoad = info && info.customData && info.customData.audio;
             applyAudioLabel(desiredAudioLabel || fromLoad);
         });
+
+        // Buffering spinner: HTML5 media events fire on the custom <video> even though Shaka drives
+        // playback, so we show a spinner while the stream (re)buffers or seeks instead of a frozen frame.
+        const spinnerEl = el('spinner');
+        const videoEl = el('video');
+        const setBuffering = (on) => spinnerEl.classList.toggle('show', !!on);
+        ['waiting', 'seeking', 'loadstart'].forEach((e) => videoEl.addEventListener(e, () => setBuffering(true)));
+        ['playing', 'seeked', 'canplaythrough', 'pause', 'ended'].forEach((e) => videoEl.addEventListener(e, () => setBuffering(false)));
 
         playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
             castDebugLogger.error('Reboot', 'player error: ' + JSON.stringify(event));
