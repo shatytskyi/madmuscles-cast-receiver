@@ -27,6 +27,7 @@
             --text: #f3f4f7;
             --dim: rgba(243,244,247,0.6);
             --faint: rgba(243,244,247,0.32);
+            --gap: 1.3vh;   /* small, equal gap around the bottom progress bar */
         }
         * { box-sizing: border-box; }
         html, body {
@@ -38,13 +39,17 @@
         /* Ambient backdrop behind the pillarboxed video (static for now). */
         #stage {
             position: absolute; inset: 0;
-            display: grid; grid-template-columns: 1fr minmax(0, auto) 1fr; align-items: center;
-            padding: 4.5%;
+            display: grid;
+            grid-template-columns: 1fr minmax(0, auto) 1fr;
+            grid-template-rows: 1fr auto;            /* video area | progress strip */
+            align-items: center;                     /* centers the side panels vertically */
+            row-gap: var(--gap);                     /* gap above the progress bar */
+            padding: 0 4.5% var(--gap);              /* no top padding; small gap below the bar */
             background: radial-gradient(120% 95% at 50% 28%, #2c323f 0%, #14161d 56%, #000 100%);
         }
         #video {
-            grid-column: 2; justify-self: center;
-            height: 86vh; aspect-ratio: 9 / 16; max-width: 100%;
+            grid-column: 2; grid-row: 1; justify-self: center; align-self: start;
+            height: 100%; aspect-ratio: 9 / 16; max-width: 100%;  /* flush to the top, fills the area */
             background: #000; border-radius: 10px;
             box-shadow: 0 10px 44px -10px rgba(0,0,0,0.75);
             transition: opacity 320ms ease, transform 320ms ease;
@@ -54,7 +59,7 @@
         /* Side panels */
         .panel { grid-row: 1; align-self: center; min-width: 0; }
         .panel.left { grid-column: 1; padding-right: 3%; }
-        .panel.right { grid-column: 3; padding-left: 3%; display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+        .panel.right { grid-column: 3; padding-left: 3%; display: flex; flex-direction: column; align-items: center; text-align: center; }
         .eyebrow {
             margin: 0 0 1.2vh; font-size: clamp(11px, 1.5vw, 15px); font-weight: 700;
             letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
@@ -75,7 +80,7 @@
         .right.hide-timer .timer { display: none; }
 
         /* Segmented progress */
-        #progress { position: absolute; left: 4.5%; right: 4.5%; bottom: 4.6%; display: flex; gap: 5px; }
+        #progress { grid-column: 1 / -1; grid-row: 2; align-self: center; display: flex; gap: 5px; }
         .seg { flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.16); overflow: hidden; }
         .seg i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 320ms ease; }
 
