@@ -28,6 +28,7 @@
             --dim: rgba(243,244,247,0.6);
             --faint: rgba(243,244,247,0.32);
             --gap: 1.3vh;   /* small, equal gap around the bottom progress bar */
+            --strip: calc(2 * var(--gap) + 6px);   /* bottom area reserved for the progress bar */
         }
         * { box-sizing: border-box; }
         html, body {
@@ -40,16 +41,18 @@
         #stage {
             position: absolute; inset: 0;
             display: grid;
-            grid-template-columns: 1fr minmax(0, auto) 1fr;
-            grid-template-rows: 1fr auto;            /* video area | progress strip */
+            grid-template-columns: 1fr auto 1fr;
             align-items: center;                     /* centers the side panels vertically */
-            row-gap: var(--gap);                     /* gap above the progress bar */
-            padding: 0 4.5% var(--gap);              /* no top padding; small gap below the bar */
+            align-content: start;                    /* keep the row flush to the top */
+            padding: 0 4.5%;                         /* no top/bottom padding (video flush to top) */
             background: radial-gradient(120% 95% at 50% 28%, #2c323f 0%, #14161d 56%, #000 100%);
         }
         #video {
-            grid-column: 2; grid-row: 1; justify-self: center; align-self: start;
-            height: 100%; aspect-ratio: 9 / 16; max-width: 100%;  /* flush to the top, fills the area */
+            grid-column: 2; align-self: start;
+            /* Explicit height (not %/aspect-ratio) renders reliably on the dongle; width follows the
+               video's own aspect, leaving the ambient gutters for the side panels. */
+            height: calc(100vh - var(--strip)); width: auto; max-width: 100%;
+            object-fit: contain;
             background: #000; border-radius: 10px;
             box-shadow: 0 10px 44px -10px rgba(0,0,0,0.75);
             transition: opacity 320ms ease, transform 320ms ease;
@@ -80,7 +83,7 @@
         .right.hide-timer .timer { display: none; }
 
         /* Segmented progress */
-        #progress { grid-column: 1 / -1; grid-row: 2; align-self: center; display: flex; gap: 5px; }
+        #progress { position: absolute; left: 4.5%; right: 4.5%; bottom: var(--gap); display: flex; gap: 5px; }
         .seg { flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.16); overflow: hidden; }
         .seg i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 320ms ease; }
 
