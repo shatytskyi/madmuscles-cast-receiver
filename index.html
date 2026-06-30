@@ -46,27 +46,29 @@
            gradient, overscaled so the blur's soft edges never reach the screen border. The #frost layer
            on top darkens it (or tints it white) so the white/orange UI stays legible. Both sit behind
            #stage. CSS filter only paints — it never reads pixels — so no canvas/CORS taint. */
-        /* These ambient layers sit BEHIND the page content on NEGATIVE z-index so the rest of the DOM
-           keeps its original default stacking — important so we don't disturb the platform's system
-           playback overlay (which we must never touch). */
+        /* Ambient layers stack on LOW POSITIVE z-index (below the player UI, above the body box
+           background). They must NOT be negative: html+body both carry background:#000, so body's
+           background paints over any negative-z layer and the cover/gradient turns solid black. The
+           platform system overlay is drawn by the OS above the WebView, so page z-index can't affect
+           it (the real overlay-stability fix is position:fixed, not stacking). */
         #ambient {
-            position: fixed; inset: 0; z-index: -3;
+            position: fixed; inset: 0; z-index: 1;
             background: radial-gradient(120% 95% at 50% 28%, #2c323f 0%, #14161d 56%, #000 100%);
         }
         /* The blurred cover sits on its own layer above the gradient and fades in (opacity 0 → 1) once
            the image has loaded, so it never pops in instantly. */
         #cover {
-            position: fixed; inset: 0; z-index: -2;
+            position: fixed; inset: 0; z-index: 2;
             background-size: cover; background-position: center;
             filter: blur(var(--ambient-blur)) saturate(1.15);
             transform: scale(var(--ambient-scale));
             opacity: 0; transition: opacity 800ms ease;
         }
-        #frost { position: fixed; inset: 0; z-index: -1; background: var(--frost); }
+        #frost { position: fixed; inset: 0; z-index: 3; background: var(--frost); }
 
-        /* Side panels + video layer. No z-index → default stacking (restored). */
+        /* Side panels + video layer, above the ambient/frost layers. */
         #stage {
-            position: fixed; inset: 0;
+            position: fixed; inset: 0; z-index: 4;
             display: grid;
             grid-template-columns: 1fr minmax(0, auto) 1fr;
             align-items: center;                     /* centers the side panels vertically */
@@ -154,7 +156,7 @@
         #cardHint .glyph::after { content:""; position:absolute; left:50%; bottom:3px; width:7px; height:2px; transform:translateX(-50%); background:var(--accent); border-radius:2px; }
         #cardHint.hide { display: none; }
 
-        #idle { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 3vh; letter-spacing: 0.05em; }
+        #idle { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 3vh; letter-spacing: 0.05em; }
         #idle.hidden { display: none; }
 
 
@@ -163,13 +165,17 @@
             position: fixed; left: 50%; top: 50%; width: 64px; height: 64px;
             margin: -32px 0 0 -32px; box-sizing: border-box;
             border: 4px solid rgba(255,255,255,0.16); border-top-color: var(--accent);
-            border-radius: 50%; display: none; z-index: 5;
+            border-radius: 50%; display: none; z-index: 6;
         }
         #spinner.show { display: block; }
         @media (prefers-reduced-motion: no-preference) {
             #spinner.show { animation: spin 0.85s linear infinite; }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* TEMP diagnostic: surfaces the player ERROR code on screen so we can tell why a workout's
+           video won't load (network/CORS vs codec vs manifest). Remove once diagnosed. */
+        #diag { position: fixed; left: 10px; bottom: 10px; z-index: 9; max-width: 60vw; font: 13px/1.35 monospace; color: rgba(255,170,150,0.9); pointer-events: none; white-space: pre-wrap; }
     </style>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
@@ -214,6 +220,7 @@
 
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
+    <div id="diag"></div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -420,10 +427,21 @@
             const customData = (info && info.customData) || {};
             applyAudioLabel(desiredAudioLabel || customData.audio);
             applyCover(customData.cover);
+            // TEMP: show the video host so we can compare a working vs a stuck workout (e.g. segments
+            // served from a CDN host without CORS would stall Shaka while the manifest still loads).
+            try {
+                const src = (info && (info.contentUrl || info.contentId)) || '';
+                el('diag').textContent = 'LOADED ' + (src ? new URL(src).host : '(no url)');
+            } catch (e) {}
         });
 
         playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
             castDebugLogger.error('Reboot', 'player error: ' + JSON.stringify(event));
+            // TEMP: surface the failure on screen so we can tell why a workout's video won't load.
+            const code = event.detailedErrorCode != null ? event.detailedErrorCode : '?';
+            let extra = '';
+            try { extra = event.error ? JSON.stringify(event.error).slice(0, 200) : ''; } catch (e) {}
+            el('diag').textContent = 'PLAYER ERROR code=' + code + '\n' + extra;
         });
 
         // Leaving the receiver on the TV (Back/Home backgrounds it) doesn't end the Cast session by
