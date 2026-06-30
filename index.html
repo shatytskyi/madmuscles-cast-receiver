@@ -348,16 +348,32 @@
             applyOverlay(data);
         });
 
-        // Buffering spinner. PLAYER_LOAD_COMPLETE fires while the first segments are still buffering
-        // (first frame is shown but not advancing), so DON'T hide on it — wait for the video element's
-        // `playing` event, the real "playback started" signal. Show on load/buffering/stall.
+        // Buffering spinner. The single honest signal for "is the video actually playing" is whether
+        // currentTime is advancing — both PLAYER_LOAD_COMPLETE and the HTML5 `playing` event fire when
+        // the FIRST frame is presented while Shaka is still buffering segments (so they hid the spinner
+        // seconds too early). Instead a 250 ms watchdog hides the spinner only once time really advances
+        // and re-shows it whenever playback stalls — never while the video is intentionally paused
+        // (e.g. the 3·2·1 countdown), so the countdown card isn't covered by a spinner.
         const spinnerEl = el('spinner');
         const videoEl = el('video');
         const setBuffering = (on) => spinnerEl.classList.toggle('show', !!on);
         playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, () => setBuffering(true));
-        playerManager.addEventListener(cast.framework.events.EventType.BUFFERING, (event) => setBuffering(!!event.isBuffering));
+        playerManager.addEventListener(cast.framework.events.EventType.BUFFERING, (event) => { if (event.isBuffering) setBuffering(true); });
         videoEl.addEventListener('waiting', () => setBuffering(true));
-        videoEl.addEventListener('playing', () => setBuffering(false));
+        videoEl.addEventListener('seeking', () => { setBuffering(true); lastPos = -1; });
+
+        let lastPos = -1, lastAdvanceAt = 0;
+        setInterval(() => {
+            if (videoEl.paused || videoEl.ended || videoEl.readyState < 1) return;
+            const now = Date.now();
+            if (videoEl.currentTime > lastPos + 0.05) {
+                lastPos = videoEl.currentTime;
+                lastAdvanceAt = now;
+                setBuffering(false);            // time is moving → really playing
+            } else if (now - lastAdvanceAt > 500) {
+                setBuffering(true);             // stalled while trying to play → buffering
+            }
+        }, 250);
 
         // Apply the phone's audio rendition once Shaka has the manifest: prefer a label already
         // requested over the channel, else the one passed in load customData.
