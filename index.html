@@ -176,6 +176,9 @@
         /* TEMP diagnostic: surfaces the player ERROR code on screen so we can tell why a workout's
            video won't load (network/CORS vs codec vs manifest). Remove once diagnosed. */
         #diag { position: fixed; left: 10px; bottom: 10px; z-index: 9; max-width: 60vw; font: 13px/1.35 monospace; color: rgba(255,170,150,0.9); pointer-events: none; white-space: pre-wrap; }
+
+        /* Receiver build version — bumped on every deploy so we can confirm what's actually running. */
+        #version { position: fixed; right: 10px; bottom: 10px; z-index: 9; font: 11px monospace; color: rgba(255,255,255,0.3); pointer-events: none; }
     </style>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
@@ -221,6 +224,7 @@
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
     <div id="diag"></div>
+    <div id="version">v0.0.1</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
