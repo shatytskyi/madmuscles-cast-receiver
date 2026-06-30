@@ -6,12 +6,13 @@
   M3a: minimal overlay (title + timer) from the phone's reboot channel.
   M3b: FULL custom side-panel layout (no built-in <cast-media-player> chrome — own
        <video class="castMediaElement"> per the Cast "Custom UI data binding" path). Vertical 9:16
-       video is centred/pillarboxed with a static frosted-dark ambient on the sides; exercise name +
-       "N of M" + "next up" sit LEFT of the video, the timer + countdown ring sit RIGHT, a segmented
-       progress bar (one segment per exercise, mirrored from the phone) runs along the bottom. The
-       3·2·1 countdown animates locally off the isCountdown flag; intro/outro/completion show
-       "continue on your phone" cards. Clean dark POC look + Reboot orange accent.
-       Later: ambient colour sampled from the video; cover image / exercise thumbnails.
+       video is centred/pillarboxed over a blurred workout-cover frosted-glass ambient; exercise name +
+       "N of M" + "next up" sit LEFT of the video, the timer + ring sit RIGHT, a segmented
+       progress bar (one segment per exercise, mirrored from the phone) runs along the bottom;
+       intro/outro/completion show "continue on your phone" cards. Clean dark POC look + Reboot orange
+       accent. (The 3·2·1 countdown is intentionally NOT mirrored to the TV — to be revisited with a
+       different approach; it still plays on the phone.)
+       Later: ambient colour sampled from the video; exercise thumbnails.
 
   Channel (phone → TV): urn:x-cast:com.amomedia.musclemate.reboot, payload = CastOverlayMessage.
   Deploy: GitHub Pages → registered Custom Receiver 95AE9DBA; end+restart the cast session to refresh.
@@ -48,10 +49,15 @@
         #ambient {
             position: absolute; inset: 0; z-index: 0;
             background: radial-gradient(120% 95% at 50% 28%, #2c323f 0%, #14161d 56%, #000 100%);
+        }
+        /* The blurred cover sits on its own layer above the gradient and fades in (opacity 0 → 1) once
+           the image has loaded, so it never pops in instantly. */
+        #cover {
+            position: absolute; inset: 0; z-index: 0;
             background-size: cover; background-position: center;
             filter: blur(var(--ambient-blur)) saturate(1.15);
             transform: scale(var(--ambient-scale));
-            transition: opacity 600ms ease;
+            opacity: 0; transition: opacity 800ms ease;
         }
         #frost { position: absolute; inset: 0; z-index: 1; background: var(--frost); }
 
@@ -118,14 +124,13 @@
         }
         #chip::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(255,106,0,0.18); }
 
-        /* Overlays: countdown + cards */
-        #countdown, #card {
+        /* Overlay cards (intro/outro/completion prompts). */
+        #card {
             position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center;
             gap: 1.6vh; background: rgba(8,9,12,0.66); backdrop-filter: blur(3px); text-align: center;
         }
-        #countdown.show, #card.show { display: flex; }
-        #cdNum { font-size: clamp(96px, 20vw, 220px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-        #cdLabel, #cardLabel { font-size: clamp(13px, 1.8vw, 18px); letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
+        #card.show { display: flex; }
+        #cardLabel { font-size: clamp(13px, 1.8vw, 18px); letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
         #cardTitle { margin: 0; font-size: clamp(26px, 4.6vw, 50px); font-weight: 800; }
         #cardHint {
             margin-top: 1vh; display: inline-flex; align-items: center; gap: 12px;
@@ -139,10 +144,6 @@
         #idle { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 3vh; letter-spacing: 0.05em; }
         #idle.hidden { display: none; }
 
-        @media (prefers-reduced-motion: no-preference) {
-            #countdown.show #cdNum { animation: pop 1s ease-in-out infinite; }
-        }
-        @keyframes pop { 0%,100% { transform: scale(1); opacity: 0.95; } 50% { transform: scale(1.08); opacity: 1; } }
 
         /* Buffering spinner — shown while the video (re)buffers so the TV isn't a frozen/black frame. */
         #spinner {
@@ -156,15 +157,13 @@
             #spinner.show { animation: spin 0.85s linear infinite; }
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-
-        /* TEMP debug readout of the last overlay payload (remove once the timer issue is diagnosed). */
-        #debug { position: absolute; left: 8px; bottom: 8px; z-index: 9; font: 12px/1.3 monospace; color: rgba(255,255,255,0.4); pointer-events: none; }
     </style>
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script src="//www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
 </head>
 <body>
     <div id="ambient"></div>
+    <div id="cover"></div>
     <div id="frost"></div>
 
     <div id="stage" class="screen">
@@ -189,11 +188,6 @@
         <div id="chip"></div>
         <div id="progress"></div>
 
-        <div id="countdown">
-            <div id="cdNum">3</div>
-            <div id="cdLabel">Get ready</div>
-        </div>
-
         <div id="card">
             <div id="cardLabel"></div>
             <h1 id="cardTitle"></h1>
@@ -203,7 +197,6 @@
 
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
-    <div id="debug"></div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -220,7 +213,6 @@
         const leftEyebrow = el('leftEyebrow'), leftTitle = el('leftTitle'), leftSub = el('leftSub');
         const rightPanel = el('rightPanel'), timerValue = el('timerValue'), ring = el('ring');
         const timerEl = document.querySelector('.timer');
-        const countdownEl = el('countdown'), cdNum = el('cdNum');
         const cardEl = el('card'), cardLabel = el('cardLabel'), cardTitle = el('cardTitle'), cardHint = el('cardHint'), cardHintText = el('cardHintText');
 
         ring.style.strokeDasharray = RING_C.toFixed(1);
@@ -248,17 +240,6 @@
             ring.style.strokeDashoffset = (RING_C * (1 - frac)).toFixed(1);
         }
 
-        // local 3·2·1 loop while the phone reports a countdown
-        let cdTimer = null;
-        function runCountdown(on) {
-            if (on && cdTimer === null) {
-                let n = 3; cdNum.textContent = n;
-                // Count 3 → 2 → 1 once and hold at 1 until the phone clears the countdown — don't loop.
-                cdTimer = setInterval(() => { if (n > 1) { n--; cdNum.textContent = n; } }, 1000);
-            } else if (!on && cdTimer !== null) {
-                clearInterval(cdTimer); cdTimer = null;
-            }
-        }
 
         function renderPanels(d) {
             let eyebrow = '', title = '', sub = '';
@@ -322,20 +303,13 @@
             chipEl.textContent = d.workoutTitle || '';
             renderSegments(d.segments || []);
 
-            const counting = !!d.isCountdown;
-            countdownEl.classList.toggle('show', counting);
-            runCountdown(counting);
-
             // Only the completion screen takes over the TV; intro/outro keep the video visible and
             // show their prompt in the side panel.
             const isCard = (d.phase === 'completed');
-            cardEl.classList.toggle('show', isCard && !counting);
+            cardEl.classList.toggle('show', isCard);
 
             renderPanels(d);
             if (isCard) renderCard(d);
-
-            // TEMP: surface the live payload so we can see why the timer/countdown isn't rendering.
-            el('debug').textContent = (d.phase || '-') + '   t=' + (d.timer || '-') + '   cd=' + (d.isCountdown ? 1 : 0);
         }
 
         // Audio rendition (language + music/voice) the phone wants on the TV. Stored so a switch
@@ -374,7 +348,8 @@
         // the FIRST frame is presented while Shaka is still buffering segments (so they hid the spinner
         // seconds too early). Instead a 250 ms watchdog hides the spinner only once time really advances
         // and re-shows it whenever playback stalls — never while the video is intentionally paused
-        // (e.g. the 3·2·1 countdown), so the countdown card isn't covered by a spinner.
+        // (e.g. the phone pauses the remote during its local 3·2·1 countdown), so a paused TV isn't
+        // covered by a spinner.
         const spinnerEl = el('spinner');
         const videoEl = el('video');
         const setBuffering = (on) => spinnerEl.classList.toggle('show', !!on);
@@ -398,10 +373,18 @@
 
         // Blurred workout cover as the frosted-glass ambient. CSS background-image only displays the
         // image (no canvas read), so the cross-origin CDN URL needs no CORS headers.
-        const ambientEl = el('ambient');
+        const coverEl = el('cover');
         function applyCover(url) {
             if (!url) return;
-            ambientEl.style.backgroundImage = "url('" + url.replace(/'/g, "%27") + "')";
+            const safe = url.replace(/'/g, "%27");
+            // Preload, then fade in: the CSS background reads the now-cached image and the opacity
+            // transition (0 → 1) animates it in instead of popping instantly.
+            const pre = new Image();
+            pre.onload = () => {
+                coverEl.style.backgroundImage = "url('" + safe + "')";
+                coverEl.style.opacity = '1';
+            };
+            pre.src = url;
         }
 
         // Apply the phone's audio rendition + cover once Shaka has the manifest: prefer a label already
