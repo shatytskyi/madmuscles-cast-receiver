@@ -215,8 +215,9 @@
 
         /* TEMP diagnostic (MA-4513 error-905 probe): surfaces the player ERROR code + Shaka detail on
            screen so we can confirm the CORS fix. Remove once the CDN CORS issue is resolved. */
-        /* Temporarily HIDDEN at the user's request (logging kept running for re-enable during CORS testing — flip display back to block). */
-        #diag { display: none; position: fixed; left: 10px; bottom: 10px; z-index: 9; max-width: 60vw; font: 13px/1.35 monospace; color: rgba(255,170,150,0.9); pointer-events: none; white-space: pre-wrap; }
+        /* TEMP re-enabled (MA-4513 rest stall probe): shows PLAYER_LOADING/BUFFERING/Shaka errors so we can
+           see whether the VIDEO buffers/errors during rest. Re-hide (display:none) once understood. */
+        #diag { display: block; position: fixed; left: 10px; bottom: 10px; z-index: 9; max-width: 60vw; font: 13px/1.35 monospace; color: rgba(255,170,150,0.9); pointer-events: none; white-space: pre-wrap; }
 
         /* TEMP: visible phase-transition readout (top-left) to pin the active→rest live transition — shows
            the phases the receiver actually RECEIVES + their timer. Remove once the rest bug is understood. */
@@ -274,7 +275,7 @@
     <div id="liveDbg"></div>
     <div id="phaseDbg"></div>
     <div id="diag"></div>
-    <div id="version">v0.0.9</div>
+    <div id="version">v0.0.10</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -493,10 +494,16 @@
         // Natural end of the outro video → celebration card (the phone is paused at the very end).
         videoEl.addEventListener('ended', () => { videoEnded = true; setBuffering(false); updateCard(); });
 
-        let lastPos = -1, lastAdvanceAt = 0;
+        let lastPos = -1, lastAdvanceAt = 0, tick = 0;
         setInterval(() => {
-            // TEMP probe: receiver's real video time vs the phone's last overlay phase+timer.
-            liveDbgEl.textContent = 'vt=' + Math.round(videoEl.currentTime || 0) + 's  ovl=' + lastOverlayPhase + (lastOverlayTimer ? ' ' + lastOverlayTimer : '');
+            // TEMP probe (MA-4513): n = interval-tick counter. During rest, if n KEEPS CLIMBING while vt is
+            // frozen, the JS loop is alive and only the VIDEO stalled; if n also freezes, the receiver's JS
+            // event loop is blocked. paused/rs expose whether the video is paused vs buffering (readyState
+            // drops while starved). ovl = last overlay the receiver actually processed.
+            tick++;
+            liveDbgEl.textContent = 'n=' + tick + ' vt=' + Math.round(videoEl.currentTime || 0) +
+                's paused=' + (videoEl.paused ? 1 : 0) + ' rs=' + videoEl.readyState +
+                ' ovl=' + lastOverlayPhase + (lastOverlayTimer ? ' ' + lastOverlayTimer : '');
 
             // Completion detection: the phone pauses at the very end of the outro, which can land just
             // shy of `ended` firing — so also treat "outro + parked within 0.4 s of duration" as ended,
