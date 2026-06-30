@@ -426,6 +426,22 @@
             castDebugLogger.error('Reboot', 'player error: ' + JSON.stringify(event));
         });
 
+        // Leaving the receiver on the TV (Back/Home backgrounds it) doesn't end the Cast session by
+        // itself, so the phone can stay stuck "casting". When the receiver is backgrounded for more
+        // than a moment, stop the receiver app — that ends the session, which fires the sender's
+        // existing onSessionEnded path and resumes local playback on the phone. Receiver-only, so it
+        // works without an app rebuild. The 1.2 s guard ignores transient hides. (MA-4513)
+        let exitStopTimer = null;
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                exitStopTimer = setTimeout(() => { try { context.stop(); } catch (e) {} }, 1200);
+            } else if (exitStopTimer) {
+                clearTimeout(exitStopTimer);
+                exitStopTimer = null;
+            }
+        });
+        window.addEventListener('pagehide', () => { try { context.stop(); } catch (e) {} });
+
         const options = new cast.framework.CastReceiverOptions();
         options.useShakaForHls = true;
         context.start(options);
