@@ -8,11 +8,14 @@
        <video class="castMediaElement"> per the Cast "Custom UI data binding" path). Vertical 9:16
        video is centred/pillarboxed over a blurred workout-cover frosted-glass ambient; exercise name +
        "N of M" + "next up" sit LEFT of the video, the timer + ring sit RIGHT, a segmented
-       progress bar (one segment per exercise, mirrored from the phone) runs along the bottom;
-       intro/outro/completion show "continue on your phone" cards. Clean dark POC look + Reboot orange
-       accent. (The 3·2·1 countdown is intentionally NOT mirrored to the TV — to be revisited with a
-       different approach; it still plays on the phone.)
-       Later: ambient colour sampled from the video; exercise thumbnails.
+       progress bar runs along the top; intro/outro show a right-panel "tap X on your phone" CTA.
+  Design: skinned to the app's REAL Reboot design system — accent #FF4400 (orange50), Inter for text +
+       IBM Plex Sans for the big timer digits (the actual app TTFs, served beside this file), white-on-grey
+       progress bar, 16px-radius chips/cards, primary-button styling for the CTA. (RebootTheme* tokens.)
+  Completion: the full-screen "Workout complete" card shows when the OUTRO VIDEO FULLY ENDS (the phone
+       pauses at the very end) — detected receiver-side via the `ended` event / currentTime≈duration.
+       While the outro is still playing it stays a right-panel "Complete" prompt. (The 3·2·1 countdown is
+       intentionally NOT mirrored — still plays on the phone.)
 
   Channel (phone → TV): urn:x-cast:com.amomedia.musclemate.reboot, payload = CastOverlayMessage.
   Deploy: GitHub Pages → registered Custom Receiver 95AE9DBA; end+restart the cast session to refresh.
@@ -23,37 +26,58 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MadMuscles Reboot Receiver</title>
     <style>
+        /* Real Reboot fonts (the exact app TTFs, served from this repo next to index.html). Inter for all
+           text; IBM Plex Sans for the large timer digits (RebootThemeTypography.digitsLargeBold). */
+        @font-face {
+            font-family: 'InterReboot'; font-weight: 100 900; font-style: normal; font-display: swap;
+            src: url('inter_variable.ttf') format('truetype');
+        }
+        @font-face {
+            font-family: 'PlexReboot'; font-weight: 100 900; font-style: normal; font-display: swap;
+            src: url('ibm_plex_sans_variable.ttf') format('truetype');
+        }
+
         :root {
-            --accent: #ff6a00;
-            --text: #f3f4f7;
-            --dim: rgba(243,244,247,0.6);
-            --faint: rgba(243,244,247,0.32);
+            /* Reboot semantic tokens (dark) — RebootThemeColors.kt */
+            --accent: #FF4400;             /* orange50 — the real Reboot accent */
+            --text: #FFFFFF;               /* textPrimary */
+            --text-secondary: #B3B3B3;     /* grey70 / textSecondary */
+            --text-tertiary: #808080;      /* grey50 / textTertiary */
+            --dim: #B3B3B3;                /* alias → textSecondary */
+            --faint: #808080;              /* idle text → textTertiary */
+            --on-light-strong: rgba(18,18,18,0.40);   /* overlayOnLightStrong — chip/button bg over video */
+            --on-light-heavy: rgba(18,18,18,0.60);    /* overlayOnLightHeavy — completion card scrim */
+            --on-dark-subtle: rgba(255,255,255,0.12); /* overlayOnDarkSubtle */
+            --on-dark-soft: rgba(255,255,255,0.16);   /* overlayOnDarkSoft */
+            --r-l: 16px;                   /* shapes.large */
+            --font-ui: 'InterReboot', -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+            --font-digits: 'PlexReboot', 'InterReboot', system-ui, sans-serif;
             --gap: 1.6vh;        /* offset of the progress bar from the top screen edge */
             --video-gap: 4vh;    /* double gap above the video — clears the top progress bar; single 2vh below */
             /* Frosted-glass ambient (blurred workout cover behind the video). */
             --ambient-blur: 60px;             /* blur radius of the cover */
             --ambient-scale: 1.2;             /* overscan so blurred edges never show */
-            --frost: rgba(8, 9, 12, 0.45);    /* DARK frost, slightly lightened (cover shows through more). White-glass alt: rgba(255,255,255,0.10) */
+            --frost: rgba(18, 19, 20, 0.46);  /* neutral-black frost over the cover (Reboot neutrals) */
         }
         * { box-sizing: border-box; }
         html, body {
             margin: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none;
-            background: #000; color: var(--text);
-            font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+            background: #121212; color: var(--text);     /* surfaceTertiary */
+            font-family: var(--font-ui);
+            -webkit-font-smoothing: antialiased;
         }
 
         /* Frosted-glass ambient: blurred workout cover (set from load customData.cover) with a fallback
            gradient, overscaled so the blur's soft edges never reach the screen border. The #frost layer
-           on top darkens it (or tints it white) so the white/orange UI stays legible. Both sit behind
-           #stage. CSS filter only paints — it never reads pixels — so no canvas/CORS taint. */
-        /* Ambient layers stack on LOW POSITIVE z-index (below the player UI, above the body box
-           background). They must NOT be negative: html+body both carry background:#000, so body's
-           background paints over any negative-z layer and the cover/gradient turns solid black. The
-           platform system overlay is drawn by the OS above the WebView, so page z-index can't affect
-           it (the real overlay-stability fix is position:fixed, not stacking). */
+           on top darkens it so the white/orange UI stays legible. Both sit behind #stage. CSS filter only
+           paints — it never reads pixels — so no canvas/CORS taint.
+           Layers stack on LOW POSITIVE z-index (below the player UI, above the body box background). They
+           must NOT be negative: html+body carry a background, so body's box paints over any negative-z
+           layer and the cover/gradient turns solid black. The OS system overlay is drawn above the WebView,
+           so page z-index can't affect it (the real overlay-stability fix is position:fixed). */
         #ambient {
             position: fixed; inset: 0; z-index: 1;
-            background: radial-gradient(120% 95% at 50% 28%, #2c323f 0%, #14161d 56%, #000 100%);
+            background: radial-gradient(120% 95% at 50% 28%, #2A2A2A 0%, #1E1E1E 56%, #121212 100%);
         }
         /* The blurred cover sits on its own layer above the gradient and fades in (opacity 0 → 1) once
            the image has loaded, so it never pops in instantly. */
@@ -96,75 +120,90 @@
         .panel { grid-row: 1; align-self: center; min-width: 0; }
         .panel.left { grid-column: 1; padding-right: 3%; }
         .panel.right { grid-column: 3; padding-left: 3%; display: flex; flex-direction: column; align-items: center; text-align: center; }
+        /* Eyebrow = Reboot section-header style (bodySBold, uppercase, textSecondary). */
         .eyebrow {
             margin: 0 0 1.2vh; font-size: clamp(11px, 1.5vw, 15px); font-weight: 700;
-            letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+            letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-secondary);
         }
-        .left .title { margin: 0; font-size: clamp(20px, 3.6vw, 40px); font-weight: 800; line-height: 1.08; letter-spacing: -0.015em; }
-        .left .sub { margin: 1.6vh 0 0; font-size: clamp(13px, 1.7vw, 18px); color: var(--dim); }
-        .right .eyebrow { color: var(--dim); }
+        /* Title = titleXl (700, -0.02em). */
+        .left .title { margin: 0; font-size: clamp(20px, 3.6vw, 40px); font-weight: 700; line-height: 1.08; letter-spacing: -0.02em; }
+        .left .sub { margin: 1.6vh 0 0; font-size: clamp(13px, 1.7vw, 18px); color: var(--text-secondary); }
+        .left .sub b { color: var(--text); font-weight: 600; }
 
-        /* Timer + ring */
+        /* Timer + ring. Digits use IBM Plex Sans (digitsLargeBold), ring uses the accent. */
         .timer { position: relative; width: clamp(110px, 18vw, 200px); aspect-ratio: 1; display: grid; place-items: center; }
         .timer svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-        .timer .track { fill: none; stroke: rgba(255,255,255,0.14); stroke-width: 6; }
+        .timer .track { fill: none; stroke: var(--on-dark-soft); stroke-width: 6; }
         .timer .fill {
             fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round;
             stroke-dasharray: 289; stroke-dashoffset: 0; transition: stroke-dashoffset 950ms linear;
         }
-        .timer .value { font-size: clamp(28px, 5vw, 54px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
-        .timer .value.label { font-size: clamp(20px, 3vw, 34px); font-weight: 700; letter-spacing: 0.04em; }
+        .timer .value { font-family: var(--font-digits); font-size: clamp(30px, 5.2vw, 58px); font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+        .timer .value.label { font-family: var(--font-ui); font-size: clamp(20px, 3vw, 34px); font-weight: 700; letter-spacing: 0.02em; }
         .timer.no-ring svg { display: none; }
         .right.hide-timer .timer { display: none; }
 
-        /* Right-panel action prompt (intro → Start, outro → Complete): a prominent "do X on your phone"
-           block shown in place of the timer, mirroring the phone's exact button label. */
-        #rightPrompt { display: none; flex-direction: column; align-items: center; gap: 1.6vh; max-width: 24vw; }
+        /* Right-panel action prompt (intro → Start workout, outro → Complete): mirrors the phone's
+           primaryLarge button (accent fill, white labelLarge, radius-large, trailing arrow) + a quiet
+           "tap on your phone" hint with a phone glyph. Shown in place of the timer. */
+        #rightPrompt { display: none; flex-direction: column; align-items: center; gap: 1.8vh; max-width: 26vw; }
         .right.show-prompt .timer { display: none; }
         .right.show-prompt #rightPrompt { display: flex; }
-        .prompt-glyph { width: 38px; height: 58px; border: 2.5px solid var(--accent); border-radius: 8px; position: relative; flex: none; }
-        .prompt-glyph::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 13px; height: 3px; transform: translateX(-50%); background: var(--accent); border-radius: 2px; }
-        .prompt-text { margin: 0; font-size: clamp(19px, 2.5vw, 32px); font-weight: 700; line-height: 1.25; text-align: center; }
-        .prompt-text b { display: block; margin: 0.4vh 0; color: var(--accent); font-weight: 800; }
+        .cta {
+            display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 1.3vh 3vh;
+            background: var(--accent); color: var(--text); border-radius: var(--r-l);
+            font-size: clamp(16px, 2vw, 22px); font-weight: 600; letter-spacing: -0.01em; white-space: nowrap;
+        }
+        .cta .arrow { width: 20px; height: 20px; position: relative; flex: none; }
+        .cta .arrow::before { content: ""; position: absolute; top: 50%; left: 1px; width: 14px; height: 2px; background: currentColor; transform: translateY(-50%); }
+        .cta .arrow::after { content: ""; position: absolute; top: 50%; right: 1px; width: 9px; height: 9px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; transform: translateY(-50%) rotate(45deg); }
+        .cta-hint { display: inline-flex; align-items: center; gap: 9px; font-size: clamp(13px, 1.6vw, 18px); color: var(--text-secondary); }
+        .prompt-glyph { width: 22px; height: 33px; border: 2px solid var(--text-secondary); border-radius: 5px; position: relative; flex: none; }
+        .prompt-glyph::after { content: ""; position: absolute; left: 50%; bottom: 4px; width: 8px; height: 2px; transform: translateX(-50%); background: var(--text-secondary); border-radius: 2px; }
 
-        /* Segmented progress */
-        #progress { position: absolute; left: 4.5%; right: 4.5%; top: var(--gap); display: flex; gap: 5px; }
-        .seg { flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.16); overflow: hidden; }
-        .seg i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width 320ms ease; }
+        /* Segmented progress — Reboot PlayerProgressBar: track = textSecondary (grey70), fill = WHITE
+           (textPrimary), h6 r3; intro/outro are fixed-width "bookends", exercises flex between them. */
+        #progress { position: absolute; left: 4.5%; right: 4.5%; top: var(--gap); display: flex; align-items: center; gap: 6px; }
+        .seg { flex: 1; height: 6px; border-radius: 3px; background: var(--text-secondary); overflow: hidden; }
+        .seg.bookend { flex: 0 0 5.5%; }
+        .seg.bookend:first-child { margin-right: 6px; }
+        .seg.bookend:last-child { margin-left: 6px; }
+        .seg i { display: block; height: 100%; width: 0; background: var(--text); border-radius: 3px; transition: width 320ms ease; }
 
-        /* Top-left workout chip */
+        /* Top-left workout chip — Reboot rounded chip (radius-large, on-light-strong bg) + accent dot. */
         #chip {
             position: absolute; top: 4.4%; left: 4.6%; display: inline-flex; align-items: center; gap: 9px;
-            font-size: clamp(12px, 1.5vw, 16px); color: var(--dim); letter-spacing: 0.02em;
+            font-size: clamp(12px, 1.5vw, 16px); color: var(--text-secondary); font-weight: 600;
+            background: var(--on-light-strong); border-radius: var(--r-l); padding: 0.9vh 1.4vw;
         }
-        #chip::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(255,106,0,0.18); }
+        #chip:empty { display: none; }
+        #chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 
-        /* Overlay cards (intro/outro/completion prompts). */
+        /* Full-screen completion card — shown when the outro VIDEO fully ends (not on a phase flag). */
         #card {
-            position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center;
-            gap: 1.6vh; background: rgba(8,9,12,0.66); backdrop-filter: blur(3px); text-align: center;
+            position: absolute; inset: 0; z-index: 7; display: none; flex-direction: column; align-items: center; justify-content: center;
+            gap: 1.6vh; background: var(--on-light-heavy); backdrop-filter: blur(4px); text-align: center;
         }
         #card.show { display: flex; }
-        #cardLabel { font-size: clamp(13px, 1.8vw, 18px); letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
-        #cardTitle { margin: 0; font-size: clamp(26px, 4.6vw, 50px); font-weight: 800; }
+        #cardLabel { font-size: clamp(13px, 1.8vw, 18px); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+        #cardTitle { margin: 0; font-size: clamp(26px, 4.6vw, 50px); font-weight: 700; letter-spacing: -0.02em; }
         #cardHint {
             margin-top: 1vh; display: inline-flex; align-items: center; gap: 12px;
-            border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05);
-            padding: 1.4vh 2.4vw; border-radius: 999px; font-size: clamp(14px, 1.8vw, 19px); font-weight: 600;
+            border: 1px solid var(--on-dark-soft); background: var(--on-dark-subtle);
+            padding: 1.4vh 2.4vw; border-radius: 999px; font-size: clamp(14px, 1.8vw, 19px); font-weight: 600; color: var(--text);
         }
-        #cardHint .glyph { width: 20px; height: 30px; border: 2px solid var(--accent); border-radius: 5px; position: relative; flex: none; }
-        #cardHint .glyph::after { content:""; position:absolute; left:50%; bottom:3px; width:7px; height:2px; transform:translateX(-50%); background:var(--accent); border-radius:2px; }
+        #cardHint .glyph { width: 20px; height: 30px; border: 2px solid var(--text-secondary); border-radius: 5px; position: relative; flex: none; }
+        #cardHint .glyph::after { content:""; position:absolute; left:50%; bottom:3px; width:7px; height:2px; transform:translateX(-50%); background:var(--text-secondary); border-radius:2px; }
         #cardHint.hide { display: none; }
 
         #idle { position: fixed; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 3vh; letter-spacing: 0.05em; }
         #idle.hidden { display: none; }
 
-
         /* Buffering spinner — shown while the video (re)buffers so the TV isn't a frozen/black frame. */
         #spinner {
             position: fixed; left: 50%; top: 50%; width: 64px; height: 64px;
             margin: -32px 0 0 -32px; box-sizing: border-box;
-            border: 4px solid rgba(255,255,255,0.16); border-top-color: var(--accent);
+            border: 4px solid var(--on-dark-soft); border-top-color: var(--accent);
             border-radius: 50%; display: none; z-index: 6;
         }
         #spinner.show { display: block; }
@@ -173,8 +212,8 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* TEMP diagnostic: surfaces the player ERROR code on screen so we can tell why a workout's
-           video won't load (network/CORS vs codec vs manifest). Remove once diagnosed. */
+        /* TEMP diagnostic (MA-4513 error-905 probe): surfaces the player ERROR code + Shaka detail on
+           screen so we can confirm the CORS fix. Remove once the CDN CORS issue is resolved. */
         #diag { position: fixed; left: 10px; bottom: 10px; z-index: 9; max-width: 60vw; font: 13px/1.35 monospace; color: rgba(255,170,150,0.9); pointer-events: none; white-space: pre-wrap; }
 
         /* Receiver build version — bumped on every deploy so we can confirm what's actually running. */
@@ -206,8 +245,8 @@
                 <div class="value" id="timerValue"></div>
             </div>
             <div id="rightPrompt">
-                <span class="prompt-glyph"></span>
-                <p class="prompt-text">Tap<b id="promptBtn"></b>on your phone</p>
+                <div class="cta"><span id="promptBtn"></span><span class="arrow"></span></div>
+                <div class="cta-hint"><span class="prompt-glyph"></span><span>Tap on your phone</span></div>
             </div>
         </div>
 
@@ -224,7 +263,7 @@
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
     <div id="diag"></div>
-    <div id="version">v0.0.2</div>
+    <div id="version">v0.0.3</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -247,11 +286,9 @@
         ring.style.strokeDasharray = RING_C.toFixed(1);
 
         // TEMP (MA-4513 error-905 probe): an on-screen APPEND log of the media-load lifecycle, each line
-        // timestamped (ms since the receiver booted). It records every incoming LOAD/STOP/SEEK transport
-        // command (via message interceptors below) plus the player loading / loaded / error events. A 905
-        // is LOAD_INTERRUPTED — a second LOAD or a STOP raced the in-flight load — so this log reveals
-        // whether that actually happens and what URL is loading, letting us compare a working vs a stuck
-        // workout. Remove once diagnosed.
+        // timestamped (ms since the receiver booted). Records every incoming LOAD/STOP/SEEK transport
+        // command (via the interceptors below) plus loading / loaded / error events. Remove once the CDN
+        // CORS issue is fixed and casting is confirmed.
         const diagEl = el('diag');
         const diagLines = [];
         const nowMs = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
@@ -262,10 +299,17 @@
             diagEl.textContent = diagLines.join('\n');
         }
 
+        // Segments = [introProgress, ...exerciseProgresses, outroProgress]; first + last render as
+        // fixed-width bookends (intro/outro), the middle exercises flex between them (Reboot progress bar).
         function renderSegments(arr) {
             if (progressEl.children.length !== arr.length) {
                 progressEl.innerHTML = '';
-                arr.forEach(() => { const s = document.createElement('div'); s.className = 'seg'; s.innerHTML = '<i></i>'; progressEl.appendChild(s); });
+                arr.forEach((_, i) => {
+                    const s = document.createElement('div');
+                    s.className = 'seg' + ((i === 0 || i === arr.length - 1) ? ' bookend' : '');
+                    s.innerHTML = '<i></i>';
+                    progressEl.appendChild(s);
+                });
             }
             [...progressEl.children].forEach((seg, i) => {
                 seg.querySelector('i').style.width = Math.round((arr[i] || 0) * 100) + '%';
@@ -284,7 +328,6 @@
             const frac = total > 0 ? Math.max(0, Math.min(1, parseTimerSec(d.timer) / total)) : 1;
             ring.style.strokeDashoffset = (RING_C * (1 - frac)).toFixed(1);
         }
-
 
         function renderPanels(d) {
             let eyebrow = '', title = '', sub = '';
@@ -306,7 +349,7 @@
                     eyebrow = 'Almost done'; title = d.workoutTitle || '';
                     rightMode = 'prompt'; promptBtn = 'Complete'; break;
                 default:
-                    break; // completed renders as a card overlay
+                    break; // completion is driven by the video ending, not a phase (see updateCard)
             }
             leftEyebrow.textContent = eyebrow;
             leftTitle.textContent = title;
@@ -314,7 +357,7 @@
             applyRight(rightMode, rightLabel, d, promptBtn);
         }
 
-        // Right panel: 'timer' = ring + mm:ss, 'prompt' = "Tap <button> on your phone" call-to-action,
+        // Right panel: 'timer' = ring + mm:ss, 'prompt' = primary-button CTA + "tap on your phone" hint,
         // 'label' = a bare word, 'hidden' = nothing.
         function applyRight(mode, label, d, promptBtn) {
             rightPanel.classList.toggle('show-prompt', mode === 'prompt');
@@ -336,33 +379,32 @@
             }
         }
 
-        function renderCard(d) {
-            let label = '', title = '', hint = '';
-            switch (d.phase) {
-                case 'intro': label = 'Get started'; title = d.workoutTitle || 'Workout'; hint = 'Press Start on your phone'; break;
-                case 'outro': label = 'Almost done'; title = d.workoutTitle || ''; hint = 'Tap Complete on your phone'; break;
-                case 'completed': label = 'Workout complete'; title = 'Nice work 💪'; hint = ''; break;
+        // The full-screen "Workout complete" card shows when the outro VIDEO has fully ended (the phone
+        // pauses at the very end), NOT on a phase flag — so while the outro is still playing the TV keeps
+        // the video + the right-panel "Complete" prompt, and only flips to the celebration once playback
+        // truly finishes. `videoEnded` is driven by the HTML5 `ended` event and the watchdog below.
+        let currentPhase = '';
+        let videoEnded = false;
+        function updateCard() {
+            const show = videoEnded || currentPhase === 'completed';
+            cardEl.classList.toggle('show', show);
+            if (show) {
+                cardLabel.textContent = 'Workout complete';
+                cardTitle.textContent = 'Nice work 💪';
+                cardHintText.textContent = 'Continue on your phone';
+                cardHint.classList.remove('hide');
             }
-            cardLabel.textContent = label;
-            cardTitle.textContent = title;
-            cardHintText.textContent = hint;
-            cardHint.classList.toggle('hide', !hint);
         }
 
         function applyOverlay(d) {
             if (!d || d.type !== 'overlay') return;
             idleEl.classList.add('hidden');
+            currentPhase = d.phase;
             screenEl.dataset.phase = d.phase;
             chipEl.textContent = d.workoutTitle || '';
             renderSegments(d.segments || []);
-
-            // Only the completion screen takes over the TV; intro/outro keep the video visible and
-            // show their prompt in the side panel.
-            const isCard = (d.phase === 'completed');
-            cardEl.classList.toggle('show', isCard);
-
             renderPanels(d);
-            if (isCard) renderCard(d);
+            updateCard();
         }
 
         // Audio rendition (language + music/voice) the phone wants on the TV. Stored so a switch
@@ -399,10 +441,8 @@
         // Buffering spinner. The single honest signal for "is the video actually playing" is whether
         // currentTime is advancing — both PLAYER_LOAD_COMPLETE and the HTML5 `playing` event fire when
         // the FIRST frame is presented while Shaka is still buffering segments (so they hid the spinner
-        // seconds too early). Instead a 250 ms watchdog hides the spinner only once time really advances
-        // and re-shows it whenever playback stalls — never while the video is intentionally paused
-        // (e.g. the phone pauses the remote during its local 3·2·1 countdown), so a paused TV isn't
-        // covered by a spinner.
+        // seconds too early). A 250 ms watchdog hides the spinner only once time really advances and
+        // re-shows it whenever playback stalls — never while the video is intentionally paused.
         const spinnerEl = el('spinner');
         const videoEl = el('video');
         const setBuffering = (on) => spinnerEl.classList.toggle('show', !!on);
@@ -410,9 +450,23 @@
         playerManager.addEventListener(cast.framework.events.EventType.BUFFERING, (event) => { if (event.isBuffering) setBuffering(true); });
         videoEl.addEventListener('waiting', () => setBuffering(true));
         videoEl.addEventListener('seeking', () => { setBuffering(true); lastPos = -1; });
+        // Natural end of the outro video → celebration card (the phone is paused at the very end).
+        videoEl.addEventListener('ended', () => { videoEnded = true; setBuffering(false); updateCard(); });
 
         let lastPos = -1, lastAdvanceAt = 0;
         setInterval(() => {
+            // Completion detection: the phone pauses at the very end of the outro, which can land just
+            // shy of `ended` firing — so also treat "outro + parked within 0.4 s of duration" as ended,
+            // and undo it if playback ever moves back from the end.
+            const dur = videoEl.duration;
+            if (currentPhase === 'outro' && isFinite(dur) && dur > 0) {
+                if (videoEl.currentTime >= dur - 0.4) {
+                    if (!videoEnded) { videoEnded = true; updateCard(); }
+                } else if (videoEnded && videoEl.currentTime < dur - 1) {
+                    videoEnded = false; updateCard();
+                }
+            }
+
             if (videoEl.paused || videoEl.ended || videoEl.readyState < 1) return;
             const now = Date.now();
             if (videoEl.currentTime > lastPos + 0.05) {
@@ -440,17 +494,17 @@
             pre.src = url;
         }
 
-        // Apply the phone's audio rendition + cover once Shaka has the manifest: prefer a label already
-        // requested over the channel, else the one passed in load customData.
-        let hasLoaded = false;   // gates the Back/Home auto-stop so it can't interrupt the initial load
+        // Apply the phone's audio rendition + cover once Shaka has the manifest, and reset the
+        // completion state for the freshly-loaded media.
+        let hasLoaded = false;   // (kept for the future Back/Home auto-stop guard)
         playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, () => {
             hasLoaded = true;
+            videoEnded = false; updateCard();
             const info = playerManager.getMediaInformation && playerManager.getMediaInformation();
             const customData = (info && info.customData) || {};
             applyAudioLabel(desiredAudioLabel || customData.audio);
             applyCover(customData.cover);
-            // TEMP: show the video host so we can compare a working vs a stuck workout (e.g. segments
-            // served from a CDN host without CORS would stall Shaka while the manifest still loads).
+            // TEMP (905 probe): show the loaded URL so we can compare a working vs a stuck workout.
             try {
                 const src = (info && (info.contentUrl || info.contentId)) || '(no url)';
                 diag('LOAD_COMPLETE\n  ' + src);
@@ -459,11 +513,9 @@
 
         playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
             castDebugLogger.error('Reboot', 'player error: ' + JSON.stringify(event));
-            // TEMP: surface the failure on screen with as much detail as CAF/Shaka expose, so we can tell
-            // WHY the load is interrupted/failing. detailedErrorCode 905 = LOAD_INTERRUPTED (a 2nd LOAD or
-            // a STOP raced the load), 906 = LOAD_FAILED. event.error, when it's a Shaka error, carries
-            // category (1=NETWORK 3=MEDIA 4=MANIFEST 5=STREAMING 6=DRM 7=PLAYER) + code + data — e.g.
-            // cat=1 code=1003 is a segment-fetch TIMEOUT (network reachability from the Chromecast).
+            // TEMP (905 probe): surface the failure with CAF/Shaka detail. 905 = LOAD_INTERRUPTED,
+            // 906 = LOAD_FAILED; event.error (Shaka) carries category (1=NETWORK 4=MANIFEST …, incl. CORS
+            // as 1002 HTTP_ERROR) + code + data.
             const code = event.detailedErrorCode != null ? event.detailedErrorCode : '?';
             let extra = '';
             try {
@@ -481,11 +533,8 @@
         });
 
         // TEMP (MA-4513 error-905 probe): the Back/Home auto-stop (visibilitychange / pagehide →
-        // context.stop()) is DISABLED while we diagnose 905. Gating it behind `hasLoaded` did NOT fix
-        // 905, which already proves it isn't the cause (on a stuck workout the load never completes, so
-        // hasLoaded stays false and the stop could never fire) — but disabling it entirely removes any
-        // doubt that a receiver-issued STOP is interrupting the load. Restore a smarter version of the
-        // Back-disconnect once 905 is understood.
+        // context.stop()) is DISABLED while the CDN CORS issue is open. Restore a smarter version
+        // (guarded so it can't fire during the initial load) once casting works end to end.
         //
         // let exitStopTimer = null;
         // document.addEventListener('visibilitychange', () => {
@@ -496,18 +545,14 @@
         // window.addEventListener('pagehide', () => { if (hasLoaded) { try { context.stop(); } catch (e) {} } });
 
         // Hard scroll-lock: the TV system overlay / focus changes can scroll the document and leave the
-        // whole UI shifted up. All layers are position:fixed (viewport-anchored, immune to the WebView
-        // window resize the overlay triggers), and this snaps any stray scroll back to the top. (MA-4513)
+        // whole UI shifted up. All layers are position:fixed (immune to the WebView window resize the
+        // overlay triggers), and this snaps any stray scroll back to the top. (MA-4513)
         const resetScroll = () => { if (window.scrollY || window.scrollX) window.scrollTo(0, 0); };
         window.addEventListener('scroll', resetScroll, { passive: true });
         window.addEventListener('resize', resetScroll);
 
-        // TEMP (MA-4513 error-905 probe): observe the transport commands the SENDER issues. An
-        // interceptor MUST return the (unchanged) request or the command is dropped — these only log and
-        // pass through. The LOAD counter exposes a double-load (two LOADs => the first reports 905
-        // LOAD_INTERRUPTED); a STOP or SEEK arriving before PLAYER_LOAD_COMPLETE is the other classic
-        // interrupt source. Together with the ERROR detail this says whether 905 is a command race
-        // (sender) or a Shaka load failure (network/manifest). Remove once diagnosed.
+        // TEMP (MA-4513 error-905 probe): observe the transport commands the SENDER issues. An interceptor
+        // MUST return the (unchanged) request or the command is dropped — these only log + pass through.
         const MsgType = cast.framework.messages.MessageType;
         let loadCount = 0;
         playerManager.setMessageInterceptor(MsgType.LOAD, (req) => {
