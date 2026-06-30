@@ -220,7 +220,10 @@
 
         /* TEMP: visible phase-transition readout (top-left) to pin the active→rest live transition — shows
            the phases the receiver actually RECEIVES + their timer. Remove once the rest bug is understood. */
-        #phaseDbg { position: fixed; left: 10px; top: 10px; z-index: 9; font: 12px/1.4 monospace; color: rgba(120,200,255,0.75); pointer-events: none; white-space: pre-wrap; }
+        #phaseDbg { position: fixed; left: 10px; top: 34px; z-index: 9; font: 12px/1.4 monospace; color: rgba(120,200,255,0.75); pointer-events: none; white-space: pre-wrap; }
+        /* TEMP: live readout — receiver's real video time (vt) vs the phone's overlay phase+timer (ovl).
+           If vt climbs while ovl is frozen, the cast position the phone reads is stalling. */
+        #liveDbg { position: fixed; left: 10px; top: 10px; z-index: 9; font: 12px/1.4 monospace; color: rgba(255,210,110,0.85); pointer-events: none; white-space: pre; }
 
         /* Receiver build version — bumped on every deploy so we can confirm what's actually running. */
         #version { position: fixed; right: 10px; bottom: 10px; z-index: 9; font: 11px monospace; color: rgba(255,255,255,0.3); pointer-events: none; }
@@ -268,9 +271,10 @@
 
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
+    <div id="liveDbg"></div>
     <div id="phaseDbg"></div>
     <div id="diag"></div>
-    <div id="version">v0.0.8</div>
+    <div id="version">v0.0.9</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -309,6 +313,8 @@
         // TEMP: visible phase-transition readout — logs every phase the receiver RECEIVES (with its
         // timer) so we can see whether `exerciseRest` actually arrives on a live active→rest transition.
         const phaseDbgEl = el('phaseDbg');
+        const liveDbgEl = el('liveDbg');
+        let lastOverlayPhase = '-', lastOverlayTimer = '';   // last phase+timer the phone sent (TEMP probe)
         const phaseDbgLines = [];
         function pushPhaseDbg(phase, timer) {
             phaseDbgLines.push('+' + Math.round(nowMs() - t0) + 'ms ' + phase + (timer ? ' ' + timer : ''));
@@ -420,6 +426,7 @@
             if (!d || d.type !== 'overlay') return;
             idleEl.classList.add('hidden');
             if (d.phase !== currentPhase) { diag('phase ' + d.phase + ' t=' + (d.timer || '-')); pushPhaseDbg(d.phase, d.timer); }  // TEMP: phase-transition probe
+            lastOverlayPhase = d.phase; lastOverlayTimer = d.timer || '';   // TEMP probe
             currentPhase = d.phase;
             screenEl.dataset.phase = d.phase;
             chipEl.textContent = d.workoutTitle || '';
@@ -488,6 +495,9 @@
 
         let lastPos = -1, lastAdvanceAt = 0;
         setInterval(() => {
+            // TEMP probe: receiver's real video time vs the phone's last overlay phase+timer.
+            liveDbgEl.textContent = 'vt=' + Math.round(videoEl.currentTime || 0) + 's  ovl=' + lastOverlayPhase + (lastOverlayTimer ? ' ' + lastOverlayTimer : '');
+
             // Completion detection: the phone pauses at the very end of the outro, which can land just
             // shy of `ended` firing — so also treat "outro + parked within 0.4 s of duration" as ended,
             // and undo it if playback ever moves back from the end.
