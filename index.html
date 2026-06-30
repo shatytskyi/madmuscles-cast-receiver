@@ -224,7 +224,7 @@
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
     <div id="diag"></div>
-    <div id="version">v0.0.1</div>
+    <div id="version">v0.0.2</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -245,6 +245,22 @@
         const cardEl = el('card'), cardLabel = el('cardLabel'), cardTitle = el('cardTitle'), cardHint = el('cardHint'), cardHintText = el('cardHintText');
 
         ring.style.strokeDasharray = RING_C.toFixed(1);
+
+        // TEMP (MA-4513 error-905 probe): an on-screen APPEND log of the media-load lifecycle, each line
+        // timestamped (ms since the receiver booted). It records every incoming LOAD/STOP/SEEK transport
+        // command (via message interceptors below) plus the player loading / loaded / error events. A 905
+        // is LOAD_INTERRUPTED — a second LOAD or a STOP raced the in-flight load — so this log reveals
+        // whether that actually happens and what URL is loading, letting us compare a working vs a stuck
+        // workout. Remove once diagnosed.
+        const diagEl = el('diag');
+        const diagLines = [];
+        const nowMs = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+        const t0 = nowMs();
+        function diag(line) {
+            diagLines.push('+' + Math.round(nowMs() - t0) + 'ms ' + line);
+            while (diagLines.length > 14) diagLines.shift();
+            diagEl.textContent = diagLines.join('\n');
+        }
 
         function renderSegments(arr) {
             if (progressEl.children.length !== arr.length) {
@@ -390,7 +406,7 @@
         const spinnerEl = el('spinner');
         const videoEl = el('video');
         const setBuffering = (on) => spinnerEl.classList.toggle('show', !!on);
-        playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, () => setBuffering(true));
+        playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOADING, () => { setBuffering(true); diag('PLAYER_LOADING'); });
         playerManager.addEventListener(cast.framework.events.EventType.BUFFERING, (event) => { if (event.isBuffering) setBuffering(true); });
         videoEl.addEventListener('waiting', () => setBuffering(true));
         videoEl.addEventListener('seeking', () => { setBuffering(true); lastPos = -1; });
@@ -436,38 +452,48 @@
             // TEMP: show the video host so we can compare a working vs a stuck workout (e.g. segments
             // served from a CDN host without CORS would stall Shaka while the manifest still loads).
             try {
-                const src = (info && (info.contentUrl || info.contentId)) || '';
-                el('diag').textContent = 'LOADED ' + (src ? new URL(src).host : '(no url)');
+                const src = (info && (info.contentUrl || info.contentId)) || '(no url)';
+                diag('LOAD_COMPLETE\n  ' + src);
             } catch (e) {}
         });
 
         playerManager.addEventListener(cast.framework.events.EventType.ERROR, (event) => {
             castDebugLogger.error('Reboot', 'player error: ' + JSON.stringify(event));
-            // TEMP: surface the failure on screen so we can tell why a workout's video won't load.
+            // TEMP: surface the failure on screen with as much detail as CAF/Shaka expose, so we can tell
+            // WHY the load is interrupted/failing. detailedErrorCode 905 = LOAD_INTERRUPTED (a 2nd LOAD or
+            // a STOP raced the load), 906 = LOAD_FAILED. event.error, when it's a Shaka error, carries
+            // category (1=NETWORK 3=MEDIA 4=MANIFEST 5=STREAMING 6=DRM 7=PLAYER) + code + data — e.g.
+            // cat=1 code=1003 is a segment-fetch TIMEOUT (network reachability from the Chromecast).
             const code = event.detailedErrorCode != null ? event.detailedErrorCode : '?';
             let extra = '';
-            try { extra = event.error ? JSON.stringify(event.error).slice(0, 200) : ''; } catch (e) {}
-            el('diag').textContent = 'PLAYER ERROR code=' + code + '\n' + extra;
+            try {
+                const e = event.error;
+                if (e && typeof e === 'object') {
+                    const cat = e.category != null ? 'cat=' + e.category + ' ' : '';
+                    const ec = e.code != null ? 'shaka=' + e.code + ' ' : '';
+                    const data = e.data ? JSON.stringify(e.data).slice(0, 160) : JSON.stringify(e).slice(0, 160);
+                    extra = cat + ec + data;
+                } else if (event.reason != null) {
+                    extra = 'reason=' + event.reason;
+                }
+            } catch (x) {}
+            diag('ERROR code=' + code + (extra ? '\n  ' + extra : ''));
         });
 
-        // Leaving the receiver on the TV (Back/Home backgrounds it) doesn't end the Cast session by
-        // itself, so the phone can stay stuck "casting". When the receiver is backgrounded for more
-        // than a moment, stop the receiver app — that ends the session, which fires the sender's
-        // existing onSessionEnded path and resumes local playback on the phone. Receiver-only, so it
-        // works without an app rebuild. The 1.2 s guard ignores transient hides. (MA-4513)
-        let exitStopTimer = null;
-        document.addEventListener('visibilitychange', () => {
-            // Only arm once the media has actually loaded — otherwise a transient `hidden` during the
-            // receiver's launch/load would STOP the in-flight load and surface as error 905
-            // (LOAD_INTERRUPTED), leaving the workout stuck on an eternal spinner. (MA-4513)
-            if (document.hidden && hasLoaded) {
-                exitStopTimer = setTimeout(() => { try { context.stop(); } catch (e) {} }, 1500);
-            } else if (exitStopTimer) {
-                clearTimeout(exitStopTimer);
-                exitStopTimer = null;
-            }
-        });
-        window.addEventListener('pagehide', () => { if (hasLoaded) { try { context.stop(); } catch (e) {} } });
+        // TEMP (MA-4513 error-905 probe): the Back/Home auto-stop (visibilitychange / pagehide →
+        // context.stop()) is DISABLED while we diagnose 905. Gating it behind `hasLoaded` did NOT fix
+        // 905, which already proves it isn't the cause (on a stuck workout the load never completes, so
+        // hasLoaded stays false and the stop could never fire) — but disabling it entirely removes any
+        // doubt that a receiver-issued STOP is interrupting the load. Restore a smarter version of the
+        // Back-disconnect once 905 is understood.
+        //
+        // let exitStopTimer = null;
+        // document.addEventListener('visibilitychange', () => {
+        //     if (document.hidden && hasLoaded) {
+        //         exitStopTimer = setTimeout(() => { try { context.stop(); } catch (e) {} }, 1500);
+        //     } else if (exitStopTimer) { clearTimeout(exitStopTimer); exitStopTimer = null; }
+        // });
+        // window.addEventListener('pagehide', () => { if (hasLoaded) { try { context.stop(); } catch (e) {} } });
 
         // Hard scroll-lock: the TV system overlay / focus changes can scroll the document and leave the
         // whole UI shifted up. All layers are position:fixed (viewport-anchored, immune to the WebView
@@ -475,6 +501,29 @@
         const resetScroll = () => { if (window.scrollY || window.scrollX) window.scrollTo(0, 0); };
         window.addEventListener('scroll', resetScroll, { passive: true });
         window.addEventListener('resize', resetScroll);
+
+        // TEMP (MA-4513 error-905 probe): observe the transport commands the SENDER issues. An
+        // interceptor MUST return the (unchanged) request or the command is dropped — these only log and
+        // pass through. The LOAD counter exposes a double-load (two LOADs => the first reports 905
+        // LOAD_INTERRUPTED); a STOP or SEEK arriving before PLAYER_LOAD_COMPLETE is the other classic
+        // interrupt source. Together with the ERROR detail this says whether 905 is a command race
+        // (sender) or a Shaka load failure (network/manifest). Remove once diagnosed.
+        const MsgType = cast.framework.messages.MessageType;
+        let loadCount = 0;
+        playerManager.setMessageInterceptor(MsgType.LOAD, (req) => {
+            loadCount++;
+            let url = '(none)';
+            try { url = (req && req.media && (req.media.contentUrl || req.media.contentId)) || '(none)'; } catch (e) {}
+            const at = (req && req.currentTime != null) ? Math.round(req.currentTime) : 0;
+            diag('LOAD #' + loadCount + ' start@' + at + 's\n  ' + url);
+            return req;
+        });
+        playerManager.setMessageInterceptor(MsgType.STOP, (req) => { diag('>> STOP received'); return req; });
+        playerManager.setMessageInterceptor(MsgType.SEEK, (req) => {
+            const at = (req && req.currentTime != null) ? Math.round(req.currentTime) : '?';
+            diag('>> SEEK ' + at + 's'); return req;
+        });
+        playerManager.setMessageInterceptor(MsgType.PAUSE, (req) => { diag('>> PAUSE'); return req; });
 
         const options = new cast.framework.CastReceiverOptions();
         options.useShakaForHls = true;
