@@ -422,7 +422,9 @@
 
         // Apply the phone's audio rendition + cover once Shaka has the manifest: prefer a label already
         // requested over the channel, else the one passed in load customData.
+        let hasLoaded = false;   // gates the Back/Home auto-stop so it can't interrupt the initial load
         playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, () => {
+            hasLoaded = true;
             const info = playerManager.getMediaInformation && playerManager.getMediaInformation();
             const customData = (info && info.customData) || {};
             applyAudioLabel(desiredAudioLabel || customData.audio);
@@ -451,14 +453,17 @@
         // works without an app rebuild. The 1.2 s guard ignores transient hides. (MA-4513)
         let exitStopTimer = null;
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                exitStopTimer = setTimeout(() => { try { context.stop(); } catch (e) {} }, 1200);
+            // Only arm once the media has actually loaded — otherwise a transient `hidden` during the
+            // receiver's launch/load would STOP the in-flight load and surface as error 905
+            // (LOAD_INTERRUPTED), leaving the workout stuck on an eternal spinner. (MA-4513)
+            if (document.hidden && hasLoaded) {
+                exitStopTimer = setTimeout(() => { try { context.stop(); } catch (e) {} }, 1500);
             } else if (exitStopTimer) {
                 clearTimeout(exitStopTimer);
                 exitStopTimer = null;
             }
         });
-        window.addEventListener('pagehide', () => { try { context.stop(); } catch (e) {} });
+        window.addEventListener('pagehide', () => { if (hasLoaded) { try { context.stop(); } catch (e) {} } });
 
         // Hard scroll-lock: the TV system overlay / focus changes can scroll the document and leave the
         // whole UI shifted up. All layers are position:fixed (viewport-anchored, immune to the WebView
