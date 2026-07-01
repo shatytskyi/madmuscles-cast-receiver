@@ -261,6 +261,12 @@
            the CDN CORS issue. */
         #diag { display: none; position: fixed; left: 10px; bottom: 10px; z-index: 9; max-width: 60vw; font: 13px/1.35 monospace; color: rgba(255,170,150,0.9); pointer-events: none; white-space: pre-wrap; }
 
+        /* On-screen ERROR feed (bottom-left) — surfaces any load failure / JS crash for the current POC
+           build. Hidden until something errors; error-red to stand apart from the (usually-off) #diag probe
+           that shares this corner. z-index above #diag so an error is never hidden behind the transport log. */
+        #errlog { display: none; position: fixed; left: 10px; bottom: 10px; z-index: 10; max-width: 64vw; font: 13px/1.4 monospace; color: rgba(255,105,70,0.96); pointer-events: none; white-space: pre-wrap; word-break: break-word; }
+        #errlog.show { display: block; }
+
         /* Receiver build version — bumped on every deploy so we can confirm what's actually running. */
         #version { position: fixed; right: 10px; bottom: 10px; z-index: 9; font: 11px monospace; color: rgba(255,255,255,0.3); pointer-events: none; }
     </style>
@@ -327,7 +333,8 @@
     </div>
     <div id="spinner"></div>
     <div id="diag"></div>
-    <div id="version">v0.0.21</div>
+    <div id="errlog"></div>
+    <div id="version">v0.0.22</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -362,6 +369,19 @@
             diagLines.push('+' + Math.round(nowMs() - t0) + 'ms ' + line);
             while (diagLines.length > 14) diagLines.shift();
             diagEl.textContent = diagLines.join('\n');
+        }
+
+        // On-screen ERROR feed (bottom-left): any load failure or JS crash lands here, timestamped, so we
+        // get visible feedback on the TV without a debugger attached. Shown only once something errors;
+        // capped so it can't grow unbounded. (POC-level feedback — later this should also reach the phone
+        // / analytics, §6 §12.)
+        const errlogEl = el('errlog');
+        const errlogLines = [];
+        function logError(line) {
+            errlogLines.push('+' + Math.round(nowMs() - t0) + 'ms  ' + line);
+            while (errlogLines.length > 12) errlogLines.shift();
+            errlogEl.textContent = errlogLines.join('\n');
+            errlogEl.classList.add('show');
         }
 
         // Segments = [introProgress, ...exerciseProgresses, outroProgress]; first + last render as
@@ -571,6 +591,7 @@
             // LOAD arrived but nothing ever played (a silent stall that never fires ERROR) → surface it
             // instead of hanging on the splash forever. showError() clears the flag so it fires once.
             if (awaitingPlayback && loadStartedAt > 0 && (Date.now() - loadStartedAt) > LOAD_TIMEOUT_MS) {
+                logError('load timeout — no playback after ' + (LOAD_TIMEOUT_MS / 1000) + 's');
                 showError('Can’t reach the TV', 'The workout video didn’t start. Check the connection and try again.', 'load timeout after ' + (LOAD_TIMEOUT_MS / 1000) + 's');
             }
 
@@ -644,6 +665,7 @@
                 }
             } catch (x) {}
             diag('ERROR code=' + code + (extra ? '\n  ' + extra : ''));
+            logError('media error  code=' + code + (extra ? '  ' + extra : ''));
             showError('Playback error', 'The workout video failed to load on the TV.', 'code=' + code + (extra ? '  ·  ' + extra : ''));
         });
 
@@ -665,6 +687,18 @@
         const resetScroll = () => { if (window.scrollY || window.scrollX) window.scrollTo(0, 0); };
         window.addEventListener('scroll', resetScroll, { passive: true });
         window.addEventListener('resize', resetScroll);
+
+        // Crash feedback: any uncaught JS error or unhandled promise rejection (Shaka async failures often
+        // land here) is surfaced in the on-screen error feed instead of dying silently in the console.
+        window.addEventListener('error', (e) => {
+            const where = e.filename ? ' @' + String(e.filename).split('/').pop() + ':' + e.lineno : '';
+            logError('JS error  ' + (e.message || 'error') + where);
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+            const r = e.reason;
+            const msg = (r && r.message) ? r.message : String(r);
+            logError('unhandled promise  ' + msg.slice(0, 200));
+        });
 
         // TEMP (MA-4513 error-905 probe): observe the transport commands the SENDER issues. An interceptor
         // MUST return the (unchanged) request or the command is dropped — these only log + pass through.
