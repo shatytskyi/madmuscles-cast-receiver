@@ -325,7 +325,7 @@
     <div id="spinner"></div>
     <div id="diag"></div>
     <div id="errlog"></div>
-    <div id="version">v0.0.32</div>
+    <div id="version">v0.0.33</div>
     <div id="resinfo"></div>
 
     <script>
@@ -596,7 +596,7 @@
                 const cap = (maxDecodableHeight === null ? '?' : ('≤' + maxDecodableHeight));
                 const sel = active ? (active.width + '×' + active.height) : '—';
                 const avail = tracks.map(t => t.width + '×' + t.height + (t.active ? '*' : '')).join('  ');
-                resinfoEl.textContent = 'playing ' + sel + '   cap ' + cap + '\n[' + avail + ']';
+                resinfoEl.textContent = tierProbe + '\nplaying ' + sel + '   cap ' + cap + '\n[' + avail + ']';
             } catch (e) {}
         }
 
@@ -772,27 +772,38 @@
         // (PIPELINE_ERROR_COULD_NOT_RENDER); a 4K-class Cast target (Chromecast with Google TV / Google
         // TV Streamer) decodes the full portrait. PROVEN with same-size-only test streams (plan §6.6).
         //
-        // canDisplayType is well-defined for LANDSCAPE probes, so classify the device by its H.264
-        // landscape ceiling: a device that decodes 3840x2160 landscape also decodes our tallest portrait
-        // rung (1080x1920 fits inside a 3840x2160 raster); one that can't is height-capped at ~1088. Then
-        // cap Shaka's ABR to maxHeight = the tallest rung this device can decode, applied per-load via
-        // setMediaPlaybackInfoHandler (runs just BEFORE player creation, so ABR never briefly picks an
-        // undecodable rung). ABR then auto-selects the best DECODABLE rung and falls back to the lowest
-        // one on a capped device — no more 3016. (Requires a ladder that HAS a <=1080-tall rung; our test
-        // master does, the real workout manifest does NOT yet — backend must add one, §6.6.)
+        // Probe each PORTRAIT rung with canDisplayType and cap Shaka's ABR to maxHeight = the tallest one
+        // the device claims it can display, applied per-load via setMediaPlaybackInfoHandler (runs just
+        // BEFORE player creation, so ABR never briefly picks an undecodable rung). ABR then auto-selects
+        // the best DECODABLE rung and falls back to the lowest on a capped device — no more 3016.
+        // (Requires a ladder that HAS a <=1080-tall rung; our test master does, the real workout manifest
+        // does NOT yet — backend must add one, §6.6.)
+        // NOTE (v0.0.33): a landscape 4K probe was tried first (v0.0.31) and MISFIRED — a 4K PANEL makes
+        // canDisplayType(3840x2160)=Y regardless of the Cast decoder's real portrait-height limit. If the
+        // direct portrait probe ALSO ignores the height limit (visible in #resinfo), fall back to reacting
+        // to the actual decode ERROR (step the cap below the failed rung + reload).
+        let tierProbe = '(probe pending)';
         let maxDecodableHeight = null;   // computed lazily on the first load (after context.start)
         function computeMaxDecodableHeight() {
             const H264 = 'avc1.640028';   // High@4.0 — matches our test ladder
             const canDisplay = (w, h) => { try { return !!context.canDisplayType('video/mp4', H264, w, h, 30); } catch (e) { return false; } };
-            const can4k = canDisplay(3840, 2160);      // 4K H.264 -> decodes the full portrait
-            const can1080 = canDisplay(1920, 1080);    // at least 1080p-class
-            // Direct portrait probes — DIAGNOSTIC only (records whether portrait canDisplayType is reliable
-            // on this device; the decision is driven by the reliable landscape probes above):
-            const portraitProbe = [[1080, 1920], [720, 1280], [608, 1080]]
-                .map(r => r[0] + 'x' + r[1] + '=' + (canDisplay(r[0], r[1]) ? 'Y' : 'N')).join(' ');
-            const maxH = can4k ? 1920 : 1080;   // 1080p-class (or lower) -> cap to the <=1080-tall rung
-            diag('decode tier: 4k=' + (can4k ? 'Y' : 'N') + ' 1080=' + (can1080 ? 'Y' : 'N') +
-                '\n  portrait[' + portraitProbe + '] -> maxHeight=' + maxH);
+            // Drive the cap off DIRECT PORTRAIT probes — the tallest portrait rung this device claims it can
+            // display. (v0.0.31 drove it off a landscape 4K probe and MISFIRED on the LG: its 4K PANEL makes
+            // canDisplayType(3840x2160)=Y even though the Cast H.264 decode path can't render a >~1088-tall
+            // portrait frame → the device was mis-tiered as 4K, no cap applied, 3016 again.)
+            const portrait = [[608, 1080], [720, 1280], [1080, 1920]];
+            let maxH = 0;
+            const portraitStr = portrait.map(r => {
+                const ok = canDisplay(r[0], r[1]);
+                if (ok && r[1] > maxH) maxH = r[1];
+                return r[0] + '×' + r[1] + '=' + (ok ? 'Y' : 'N');
+            }).join(' ');
+            if (maxH === 0) maxH = 1080;   // floor: always keep the lowest rung so we never filter to zero variants
+            // Landscape probes kept for DIAGNOSIS only — shows whether canDisplayType reflects the 4K PANEL
+            // (returns Y) vs the actual decoder (should return N on a 1080p-class Cast path):
+            const land = 'land 4k=' + (canDisplay(3840, 2160) ? 'Y' : 'N') + ' 1080=' + (canDisplay(1920, 1080) ? 'Y' : 'N');
+            tierProbe = land + '  port ' + portraitStr + '  →cap≤' + maxH;
+            diag('decode tier: ' + tierProbe);
             return maxH;
         }
         playerManager.setMediaPlaybackInfoHandler((loadRequestData, playbackConfig) => {
