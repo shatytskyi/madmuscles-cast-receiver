@@ -169,7 +169,9 @@
         .seg.bookend { flex: 0 0 5.5%; }
         .seg.bookend:first-child { margin-right: 6px; }
         .seg.bookend:last-child { margin-left: 6px; }
-        .seg i { display: block; height: 100%; width: 0; background: var(--text); border-radius: 3px; transition: width 320ms ease; }
+        /* Fill grows via transform:scaleX (compositor-only) — NOT width, which would reflow every frame
+           of the transition on the weak dongle. Outer rounding comes from the track's overflow+radius. */
+        .seg i { display: block; height: 100%; width: 100%; background: var(--text); transform: scaleX(0); transform-origin: left center; transition: transform 320ms ease; }
 
         /* Top-left workout chip — Reboot rounded chip (radius-large, on-light-strong bg) + accent dot. */
         #chip {
@@ -265,7 +267,7 @@
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
     <div id="diag"></div>
-    <div id="version">v0.0.16</div>
+    <div id="version">v0.0.17</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -314,7 +316,8 @@
                 });
             }
             [...progressEl.children].forEach((seg, i) => {
-                seg.querySelector('i').style.width = Math.round((arr[i] || 0) * 100) + '%';
+                const frac = Math.max(0, Math.min(1, arr[i] || 0));
+                seg.querySelector('i').style.transform = 'scaleX(' + frac + ')';
             });
         }
 
