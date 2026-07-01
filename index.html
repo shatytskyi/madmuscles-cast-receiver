@@ -325,7 +325,7 @@
     <div id="spinner"></div>
     <div id="diag"></div>
     <div id="errlog"></div>
-    <div id="version">v0.0.34</div>
+    <div id="version">v0.0.35</div>
     <div id="resinfo"></div>
 
     <script>
@@ -741,7 +741,14 @@
                     fallbackAttempts++;
                     maxDecodableHeight = ceiling - 1;
                     diag('FALLBACK #' + fallbackAttempts + ': ' + ceiling + ' failed → cap≤' + maxDecodableHeight + ', reloading');
-                    if (reloadWithCurrentCap()) return;   // retrying a shorter rung — don't show the fullscreen error
+                    // Reload after a tick so the fatal error fully unwinds before re-loading. If the reload
+                    // itself can't be issued, surface the error instead of hanging silently.
+                    setTimeout(() => {
+                        if (!reloadWithCurrentCap()) {
+                            showError('Playback error', 'The workout video failed to load on the TV.', 'code=' + code + (extra ? '  ·  ' + extra : ''));
+                        }
+                    }, 60);
+                    return;   // retrying a shorter rung — suppress the fullscreen error for now
                 }
             }
             showError('Playback error', 'The workout video failed to load on the TV.', 'code=' + code + (extra ? '  ·  ' + extra : ''));
