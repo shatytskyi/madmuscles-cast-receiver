@@ -322,16 +322,10 @@
     <div id="spinner"></div>
     <div id="diag"></div>
     <div id="errlog"></div>
-    <div id="version">v0.0.29</div>
+    <div id="version">v0.0.30</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
-        // TEMP DIAGNOSTIC (MA-4513): force-load ONLY our 720p video media playlist (portrait 720x1280,
-        // height 1280) to binary-search the LG decoder's max-height threshold. If this (silent, video-only)
-        // renders on the LG → the limit is between 1281–1920 (the 1080p/1920-tall rung was the blocker); if
-        // it still 3016s → the limit is < 1280 (~1088, the landscape-decoder hypothesis). Set '' / REMOVE
-        // after the test. (errlog distinguishes cat=1/1002 CORS from cat=3/3016 decode.)
-        const DIAG_FORCE_URL = 'https://cdn-mobile-stage.bodyfitplan.xyz/video/1f39cf07-4cc1-44aa-b950-2efaf96de132/hls/f560e8/256d87e1ec7c_video_720p.m3u8';
         const RING_C = 2 * Math.PI * 46;
 
         const context = cast.framework.CastReceiverContext.getInstance();
@@ -717,13 +711,6 @@
         let loadCount = 0;
         playerManager.setMessageInterceptor(MsgType.LOAD, (req) => {
             loadCount++;
-            // TEMP DIAGNOSTIC (MA-4513): swap in the forced 720p-only URL to probe the LG decoder's
-            // max-height threshold (see DIAG_FORCE_URL note). REMOVE after the test.
-            if (DIAG_FORCE_URL && req && req.media) {
-                req.media.contentUrl = DIAG_FORCE_URL;
-                req.media.contentId = DIAG_FORCE_URL;
-                diag('DIAG force url → ' + DIAG_FORCE_URL);
-            }
             // A fresh load attempt (incl. a retry): clear any prior error and arm the playback watchdog.
             awaitingPlayback = true; loadStartedAt = Date.now(); hideError();
             let url = '(none)';
