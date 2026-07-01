@@ -17,7 +17,9 @@
        While the outro is still playing it stays a right-panel "Complete" prompt. (The 3·2·1 countdown is
        intentionally NOT mirrored — still plays on the phone.)
 
-  Channel (phone → TV): urn:x-cast:com.amomedia.musclemate.reboot, payload = CastOverlayMessage.
+  Channel (bidirectional): urn:x-cast:com.amomedia.musclemate.reboot.
+       phone → TV: CastOverlayMessage (overlay state) + {type:"audioTrack",audio} (Shaka rendition).
+       TV → phone: {type:"remoteCommand",command:"next"|"previous"} — TV-remote skip keys (M4).
   Deploy: GitHub Pages → registered Custom Receiver 95AE9DBA; end+restart the cast session to refresh.
 -->
 <html>
@@ -263,7 +265,7 @@
     <div id="idle">MadMuscles</div>
     <div id="spinner"></div>
     <div id="diag"></div>
-    <div id="version">v0.0.15</div>
+    <div id="version">v0.0.16</div>
 
     <script>
         const NAMESPACE = 'urn:x-cast:com.amomedia.musclemate.reboot';
@@ -403,6 +405,9 @@
             if (!d || d.type !== 'overlay') return;
             idleEl.classList.add('hidden');
             currentPhase = d.phase;
+            // Left the end of the workout (e.g. Previous from the completion card — reachable via the
+            // TV remote since M4): drop the ended flag so the celebration card stops covering the video.
+            if (d.phase !== 'outro' && d.phase !== 'completed') videoEnded = false;
             screenEl.dataset.phase = d.phase;
             chipEl.textContent = d.workoutTitle || '';
             renderSegments(d.segments || []);
@@ -482,7 +487,9 @@
                 }
             }
 
-            if (videoEl.paused || videoEl.ended || videoEl.readyState < 1) return;
+            // Paused / ended / no data → hide any spinner that a prior waiting/seeking/BUFFERING left
+            // showing, so it doesn't linger over the stopped frame, then stop (never spin while paused).
+            if (videoEl.paused || videoEl.ended || videoEl.readyState < 1) { setBuffering(false); return; }
             const now = Date.now();
             if (videoEl.currentTime > lastPos + 0.05) {
                 lastPos = videoEl.currentTime;
